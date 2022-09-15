@@ -34,7 +34,7 @@ stages:
     - task: Docker@2
       displayName: Build and push an image to container registry
       inputs:
-        containerRegistry: 'deepakcbaace01'
+        containerRegistry: 'deepakcbaacr01'
         repository: '$(ACR_REPOSITORY)'
         command: 'buildAndPush'
         Dockerfile: '**/Dockerfile'
