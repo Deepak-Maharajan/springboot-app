@@ -1,0 +1,86 @@
+# Deploy to Azure Kubernetes Service
+# Build and push image to Azure Container Registry; Deploy to Azure Kubernetes Service
+# https://docs.microsoft.com/azure/devops/pipelines/languages/docker
+
+trigger:
+- main
+
+resources:
+- repo: self
+
+variables:
+
+  # Container registry service connection established during pipeline creation
+  dockerRegistryServiceConnection: '7ef11d9b-f637-4668-b7bd-fc3bd84f2594'
+  imageRepository: 'deepakmaharajanspringbootapp'
+  containerRegistry: 'deepakcbaacr01.azurecr.io'
+  dockerfilePath: '**/Dockerfile'
+  tag: '$(Build.BuildId)'
+  imagePullSecret: 'deepakcbaacr01d7f4-auth'
+
+  # Agent VM image name
+  vmImageName: 'ubuntu-latest'
+
+
+stages:
+- stage: Build
+  displayName: Build stage
+  jobs:
+  - job: Build
+    displayName: Build
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - task: Docker@2
+      displayName: Build and push an image to container registry
+      inputs:
+        containerRegistry: $(CONTAINER_REGISTRY)
+        repository: '$(ACR_REPOSITORY)'
+        command: 'buildAndPush'
+        Dockerfile: '**/Dockerfile'
+        tags: '$(TAG)'
+
+    - upload: manifests
+      artifact: manifests
+    - task: SonarQubePrepare@5
+      inputs:
+        SonarQube: $(SONARQUBE_URL)
+        scannerMode: 'Other'
+        extraProperties: $(SONAR_PROJECT_KEY) 
+    - task: SonarQubePublish@5
+      inputs:
+        pollingTimeoutSec: '300'
+- stage: Deploy
+  displayName: Deploy stage
+  dependsOn: Build
+
+  jobs:
+  - deployment: Deploy
+    displayName: Deploy
+    pool:
+      vmImage: $(vmImageName)
+    environment: 'deepakmaharajanspringbootapp.default'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: KubernetesManifest@0
+            displayName: Create imagePullSecret
+            inputs:
+              action: 'createSecret'
+              kubernetesServiceConnection: $(k8s_service_connection)
+              secretType: 'dockerRegistry'
+              secretName: '$(imagePullSecret)'
+              dockerRegistryEndpoint: 'deepakcbaacr01'
+
+          - task: KubernetesManifest@0
+            displayName: Deploy to Kubernetes cluster
+            inputs:
+              action: 'deploy'
+              kubernetesServiceConnection: $(k8s_service_connection)
+              manifests: |
+                $(Pipeline.Workspace)/$(DEPLOYMENT_YAML)
+                $(Pipeline.Workspace)/$(SERVICE_YAML)
+              containers: '$(containerRegistry)/$(ACR_REPOSITORY):$(TAG)'
+              imagePullSecrets: '$(imagePullSecret)'
+
